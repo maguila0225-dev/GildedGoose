@@ -4,9 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npm run build:learning && node --test",
     "typecheck": "tsc --noEmit",
-    "build": "tsc"
+    "build": "tsc",
+    "build:learning": "tsc -p tsconfig.learning.json",
+    "dev": "tsc --watch",
+    "start": "node ./dist/index.js"
   },
   "keywords": [],
   "author": "",

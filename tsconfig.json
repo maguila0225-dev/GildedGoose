@@ -3,13 +3,13 @@
     "module": "nodenext",
     "target": "esnext",
     "types": [],
-    "rootDir": "./learning/typescript",
-    "outDir": "./dist/typescript",
+    "rootDir": "./src",
+    "outDir": "./dist",
     "sourceMap": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true
   },
-  "include": ["learning/typescript/**/*.ts"]
+  "include": ["src/**/*.ts"]
 }
