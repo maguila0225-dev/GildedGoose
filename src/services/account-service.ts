@@ -1,4 +1,5 @@
 import { Account } from "../models/account"
+import { TransactionType} from "../models/transaction"
 
 let nextAccountId = 0
 export let accounts: Account[] = []
@@ -10,7 +11,7 @@ export function createAccount(name: string,
         throw new Error("User ID must be a non-negative integer")
     }
 
-    if (isNameValid(name)) {
+    if (!isNameValid(name)) {
         throw new Error("Account name cannot be empty")
     }
 
@@ -35,7 +36,7 @@ export function getAccountById(id: number): Account | null {
     return account ?? null
 }
 
-export function getUserAccoounts(userId: number): Account[] {
+export function getUserAccounts(userId: number): Account[] {
     return accounts.filter(account => {return account.userId === userId})
 }
 
@@ -44,7 +45,7 @@ export function updateAccountBalance(id: number,
                                      transactionType: TransactionType): Account | null {
     const account = getAccountById(id)
     if (account) {
-        if (type === "expense") {
+        if (transactionType === "expense") {
             account.balance -= transactionAmount
         } else {
             account.balance += transactionAmount

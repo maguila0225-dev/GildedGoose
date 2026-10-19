@@ -1,10 +1,9 @@
-import { Transaction } from "../src/models"
-import { Category } from "../src/models"
-import { TransactionType } from "../src/models"
+import { Transaction } from "../models/transaction"
+import { TransactionType } from "../models/transaction"
 
-import { Account } from "../src/models"
-import { getAccountById } from "../src/services"
-import { updateAccountBalance } from "../src/services"
+import { Account } from "../models/account"
+import { getAccountById } from "../services/account-service"
+import { updateAccountBalance } from "../services/account-service"
 
 let transactions: Transaction[] = []
 let nextTransaction = 0
@@ -15,7 +14,10 @@ export function createTransaction(accountId: number,
                                   amount: number,
                                   date: Date): Transaction | null {
     const account = getAccountById(accountId)
-    if (account && isValidTransaction(account, type, amount)) {
+    if (account &&
+        isValidTransaction(account, type, amount) &&
+        isValidDate(date) &&
+        updateBalance(accountId, amount, type)) {
         const transaction: Transaction = {
             id: nextTransaction,
             accountId: accountId,
@@ -26,11 +28,18 @@ export function createTransaction(accountId: number,
         }
         nextTransaction++
         transactions.push(transaction)
-        updateAccountBalance(accountId, amount, type)
         return transaction
     } else {
         return null
     }
+}
+
+function updateBalance(accountId: number, amount: number, type: TransactionType): boolean {
+    return updateAccountBalance(accountId, amount, type) !== null
+}
+
+function isValidDate(date: unknown): date is Date {
+    return date instanceof Date && !isNaN(date.getTime())
 }
 
 function isValidTransaction(account: Account,
@@ -51,3 +60,17 @@ function isWithinBalance(balance: number, amount: number): boolean {
 function isPositiveFinite(value: unknown): value is number {
   return Number.isFinite(value) && (value as number) > 0;
 }
+
+export function getTransactionById(id: number): Transaction | null {
+    return transactions.find(transaction => { return transaction.id === id}) ?? null
+}
+
+export function getTransactionsByAccountId(id: number): Transaction[] {
+    return transactions.filter(transaction => { return transaction.accountId === id})
+}
+
+export function getAllTransactions(): Transaction[] {
+    const allTransactions = transactions.filter( transaction => { return true })
+    return allTransactions
+}
+
