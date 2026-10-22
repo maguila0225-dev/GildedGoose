@@ -1,0 +1,345 @@
+
+const { test, beforeEach } = require("node:test")
+const assert = require("node:assert/strict")
+
+const {
+    accounts,
+    createAccount,
+    getAccountById,
+    updateAccountBalance,
+    deactivateAccount,
+    renameAccount,
+    getTotalAccountBalance,
+    getAccountCount,
+    transfer,
+    getAllAccounts,
+    getAllActiveAccounts,
+    getUserAccounts,
+    getAccountByName
+} = require("../../dist/services/account-service.js")
+
+beforeEach(() => {
+    accounts.length = 0
+})
+
+function makeAccount(name = "Checking", userId = 0, balance = 1000) {
+    return createAccount(name, userId, balance)
+}
+
+// Creation and retrieval
+
+test("creates an active account and trims its name", () => {
+    const account = makeAccount(" Checking ")
+
+    assert.equal(account.name, "Checking")
+    assert.equal(account.balance, 1000)
+    assert.equal(account.isActive, true)
+})
+
+test("rejects an invalid user ID", () => {
+    assert.throws(() => createAccount("Checking", -1, 1000))
+    assert.throws(() => createAccount("Checking", 1.5, 1000))
+})
+
+test("rejects an empty account name", () => {
+    assert.throws(() => createAccount("   ", 0, 1000))
+})
+
+test("rejects a non-finite opening balance", () => {
+    assert.throws(() => createAccount("Checking", 0, Infinity))
+    assert.throws(() => createAccount("Checking", 0, NaN))
+})
+
+test("returns an account by ID as a copy", () => {
+    const created = makeAccount()
+    const retrieved = getAccountById(created.id)
+
+    assert.deepEqual(retrieved, created)
+    assert.notEqual(retrieved, created)
+})
+
+test("returns null for a missing account ID", () => {
+    assert.equal(getAccountById(-1), null)
+})
+
+// Balance updates
+
+test("adds income to an account balance", () => {
+    const account = makeAccount()
+
+    const updated = updateAccountBalance(account.id, 250, "income")
+
+    assert.equal(updated.balance, 1250)
+    assert.equal(getAccountById(account.id).balance, 1250)
+})
+
+test("subtracts expenses from an account balance", () => {
+    const account = makeAccount()
+
+    const updated = updateAccountBalance(account.id, 250, "expense")
+
+    assert.equal(updated.balance, 750)
+})
+
+test("allows an expense to produce a negative balance", () => {
+    const account = makeAccount("Checking", 0, 100)
+
+    const updated = updateAccountBalance(account.id, 200, "expense")
+
+    assert.equal(updated.balance, -100)
+})
+
+test("rejects zero, negative, and non-finite transaction amounts", () => {
+    const account = makeAccount()
+
+    for (const amount of [0, -10, NaN, Infinity, -Infinity]) {
+        assert.equal(
+            updateAccountBalance(account.id, amount, "income"),
+            null
+        )
+    }
+})
+
+test("rejects unsupported transaction types", () => {
+    const account = makeAccount()
+
+    assert.equal(
+        updateAccountBalance(account.id, 100, "transfer"),
+        null
+    )
+})
+
+test("rejects updates for missing accounts", () => {
+    assert.equal(updateAccountBalance(-1, 100, "income"), null)
+})
+
+test("rejects updates to inactive accounts", () => {
+    const account = makeAccount()
+    deactivateAccount(account.id)
+
+    assert.equal(updateAccountBalance(account.id, 100, "income"), null)
+})
+
+test("rejects an income update that would overflow", () => {
+    const account = makeAccount("Checking", 0, Number.MAX_VALUE)
+
+    assert.equal(
+        updateAccountBalance(account.id, Number.MAX_VALUE, "income"),
+        null
+    )
+})
+
+// Deactivation and renaming
+
+test("deactivates an account", () => {
+    const account = makeAccount()
+
+    assert.equal(deactivateAccount(account.id), true)
+    assert.equal(getAccountById(account.id).isActive, false)
+})
+
+test("returns false when deactivating a missing account", () => {
+    assert.equal(deactivateAccount(-1), false)
+})
+
+test("renames an account and trims the new name", () => {
+    const account = makeAccount()
+
+    const renamed = renameAccount(account.id, " Savings ")
+
+    assert.equal(renamed.name, "Savings")
+    assert.equal(getAccountById(account.id).name, "Savings")
+})
+
+test("returns null when renaming a missing account", () => {
+    assert.equal(renameAccount(-1, "Savings"), null)
+})
+
+test("rejects an empty new account name", () => {
+    const account = makeAccount()
+
+    assert.throws(() => renameAccount(account.id, "   "))
+})
+
+// Account summaries and lists
+
+test("counts only active accounts belonging to a user", () => {
+    const first = makeAccount("Checking", 0, 1000)
+    makeAccount("Savings", 0, 2000)
+    makeAccount("Other User", 1, 500)
+
+    deactivateAccount(first.id)
+
+    assert.equal(getAccountCount(0), 1)
+    assert.equal(getAccountCount(1), 1)
+})
+
+test("totals only active accounts belonging to a user", () => {
+    const first = makeAccount("Checking", 0, 1000)
+    makeAccount("Savings", 0, 2000)
+    makeAccount("Other User", 1, 500)
+
+    deactivateAccount(first.id)
+
+    assert.equal(getTotalAccountBalance(0), 2000)
+    assert.equal(getTotalAccountBalance(1), 500)
+})
+
+test("returns all accounts including inactive accounts", () => {
+    const account = makeAccount()
+    deactivateAccount(account.id)
+
+    assert.equal(getAllAccounts().length, 1)
+    assert.equal(getAllAccounts()[0].isActive, false)
+})
+
+test("returns only active accounts", () => {
+    const active = makeAccount("Active")
+    const inactive = makeAccount("Inactive")
+    deactivateAccount(inactive.id)
+
+    assert.deepEqual(
+        getAllActiveAccounts().map(account => account.id),
+        [active.id]
+    )
+})
+
+test("returns only active accounts belonging to a user", () => {
+    const first = makeAccount("Checking", 0)
+    makeAccount("Other User", 1)
+    const inactive = makeAccount("Inactive", 0)
+    deactivateAccount(inactive.id)
+
+    assert.deepEqual(
+        getUserAccounts(0).map(account => account.id),
+        [first.id]
+    )
+})
+
+test("returns copies from account list functions", () => {
+    const account = makeAccount()
+
+    const all = getAllAccounts()
+    const active = getAllActiveAccounts()
+    const userAccounts = getUserAccounts(0)
+
+    assert.notEqual(all[0], account)
+    assert.notEqual(active[0], account)
+    assert.notEqual(userAccounts[0], account)
+
+    all[0].name = "Changed"
+
+    assert.equal(getAccountById(account.id).name, "Checking")
+})
+
+// Search by account name
+
+test("finds an account by case-insensitive name", () => {
+    const account = makeAccount("Main Checking", 0)
+
+    assert.equal(
+        getAccountByName(" main checking ", 0).id,
+        account.id
+    )
+})
+
+test("returns null when an account name is not found", () => {
+    assert.equal(getAccountByName("Missing", 0), null)
+})
+
+test("does not find another user's account by name", () => {
+    makeAccount("Checking", 1)
+
+    assert.equal(getAccountByName("Checking", 0), null)
+})
+
+// Transfers
+
+test("transfers money between two accounts", () => {
+    const sender = makeAccount("Checking", 0, 1000)
+    const receiver = makeAccount("Savings", 1, 500)
+
+    assert.equal(transfer(sender.id, receiver.id, 200), true)
+    assert.equal(getAccountById(sender.id).balance, 800)
+    assert.equal(getAccountById(receiver.id).balance, 700)
+})
+
+test("rejects a transfer from a missing sender", () => {
+    const receiver = makeAccount("Savings")
+
+    assert.throws(
+        () => transfer(-1, receiver.id, 100),
+        /Invalid sender/
+    )
+})
+
+test("rejects a transfer to a missing receiver", () => {
+    const sender = makeAccount()
+
+    assert.throws(
+        () => transfer(sender.id, -1, 100),
+        /Invalid receiver/
+    )
+})
+
+test("rejects transfers involving inactive accounts", () => {
+    const sender = makeAccount("Checking")
+    const receiver = makeAccount("Savings")
+
+    deactivateAccount(sender.id)
+
+    assert.throws(
+        () => transfer(sender.id, receiver.id, 100),
+        /Invalid sender/
+    )
+})
+
+test("rejects transfers to the same account", () => {
+    const account = makeAccount()
+
+    assert.throws(
+        () => transfer(account.id, account.id, 100),
+        /Invalid transfer/
+    )
+})
+
+test("rejects transfers exceeding the sender balance", () => {
+    const sender = makeAccount("Checking", 0, 100)
+    const receiver = makeAccount("Savings", 0, 500)
+
+    assert.throws(
+        () => transfer(sender.id, receiver.id, 200),
+        /Invalid transfer/
+    )
+
+    assert.equal(getAccountById(sender.id).balance, 100)
+    assert.equal(getAccountById(receiver.id).balance, 500)
+})
+
+test("rejects invalid transfer amounts", () => {
+    const sender = makeAccount()
+    const receiver = makeAccount("Savings")
+
+    for (const amount of [0, -10, NaN, Infinity, -Infinity]) {
+        assert.throws(
+            () => transfer(sender.id, receiver.id, amount),
+            /Invalid transfer/
+        )
+    }
+})
+
+test("rejects a transfer that would overflow the receiver balance", () => {
+    const sender = makeAccount("Checking", 0, 1000)
+    const receiver = makeAccount("Savings", 0, Number.MAX_VALUE)
+
+    assert.throws(
+        () => transfer(sender.id, receiver.id, 1),
+        /Invalid transfer/
+    )
+
+    assert.equal(getAccountById(sender.id).balance, 1000)
+    assert.equal(
+        getAccountById(receiver.id).balance,
+        Number.MAX_VALUE
+    )
+})

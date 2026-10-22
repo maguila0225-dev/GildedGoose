@@ -1,184 +1,321 @@
 
-const { test } = require("node:test");
-const assert = require("node:assert/strict");
+const { test, beforeEach, describe } = require("node:test")
+const assert = require("node:assert/strict")
 
-const { createUser } = require("../../dist/services/user-service.js");
+const accountService = require("../../dist/services/account-service.js")
+const transactionService = require("../../dist/services/transaction-service.js")
 
 const {
+    accounts,
     createAccount,
-    getTotalAccountBalance
-} = require("../../dist/services/account-service.js");
+    getAccountById,
+    deactivateAccount
+} = accountService
 
 const {
     createTransaction,
     getTransactionById,
     getTransactionsByAccountId,
-    getAllTransactions
-} = require("../../dist/services/transaction-service.js");
+    getAllTransactions,
+    deleteTransaction,
+    __resetForTests
+} = transactionService
+
+// Reset module state before every test.
+beforeEach(() => {
+    accounts.length = 0
+    __resetForTests()
+})
+
+function makeAccount(name = "Checking", userId = 0, balance = 1000) {
+    return createAccount(name, userId, balance)
+}
+
+function makeTransaction(
+    accountId,
+    description = "Test transaction",
+    type = "income",
+    amount = 100,
+    date = new Date("2026-01-15T12:00:00.000Z")
+) {
+    return createTransaction(accountId, description, type, amount, date)
+}
+
+// Transaction creation
 
 test("creates an income transaction and updates the account balance", () => {
-    const testUser = createUser("Income Test User");
-    const testAccount = createAccount("Income Test Account", testUser.id, 1000);
+    const account = makeAccount()
+    const transaction = makeTransaction(account.id)
 
-    const transaction = createTransaction(
-        testAccount.id,
-        "Test Income",
-        "income",
-        250,
-        new Date()
-    );
-
-    assert.notEqual(transaction, null);
-    assert.equal(transaction.type, "income");
-    assert.equal(transaction.amount, 250);
-    assert.equal(getTotalAccountBalance(testUser.id), 1250);
-    assert.deepEqual(getTransactionById(transaction.id), transaction);
-    assert.deepEqual(getTransactionsByAccountId(testAccount.id), [transaction]);
-});
+    assert.ok(transaction)
+    assert.equal(transaction.id, 0)
+    assert.equal(transaction.accountId, account.id)
+    assert.equal(transaction.description, "Test transaction")
+    assert.equal(transaction.type, "income")
+    assert.equal(transaction.amount, 100)
+    assert.equal(transaction.date.toISOString(), "2026-01-15T12:00:00.000Z")
+    assert.equal(getAccountById(account.id).balance, 1100)
+})
 
 test("creates an expense transaction and updates the account balance", () => {
-    const testUser = createUser("Expense Test User");
-    const testAccount = createAccount("Expense Test Account", testUser.id, 1000);
-
-    const transaction = createTransaction(
-        testAccount.id,
-        "Test Expense",
+    const account = makeAccount()
+    const transaction = makeTransaction(
+        account.id,
+        "Groceries",
         "expense",
-        750,
-        new Date()
-    );
+        250
+    )
 
-    assert.notEqual(transaction, null);
-    assert.equal(transaction.type, "expense");
-    assert.equal(transaction.amount, 750);
-    assert.equal(getTotalAccountBalance(testUser.id), 250);
-    assert.deepEqual(getTransactionById(transaction.id), transaction);
-    assert.deepEqual(getTransactionsByAccountId(testAccount.id), [transaction]);
-});
+    assert.ok(transaction)
+    assert.equal(transaction.type, "expense")
+    assert.equal(getAccountById(account.id).balance, 750)
+})
 
-test("rejects zero, negative, NaN, and infinite transaction amounts", () => {
-    const testUser = createUser("Invalid Amount User");
-    const testAccount = createAccount("Invalid Amount Account", testUser.id, 1000);
-    const balanceBefore = getTotalAccountBalance(testUser.id);
-    const historyBefore = getTransactionsByAccountId(testAccount.id);
+test("allows a null description", () => {
+    const account = makeAccount()
+    const transaction = makeTransaction(account.id, null)
 
-    const invalidAmounts = [0, -5, NaN, Infinity, -Infinity];
+    assert.ok(transaction)
+    assert.equal(transaction.description, null)
+})
 
-    for (const amount of invalidAmounts) {
+test("allows an empty description", () => {
+    const account = makeAccount()
+    const transaction = makeTransaction(account.id, "")
+
+    assert.ok(transaction)
+    assert.equal(transaction.description, "")
+})
+
+test("assigns sequential transaction IDs starting at zero", () => {
+    const account = makeAccount()
+
+    const first = makeTransaction(account.id)
+    const second = makeTransaction(account.id)
+
+    assert.equal(first.id, 0)
+    assert.equal(second.id, 1)
+})
+
+// Validation
+
+test("returns null for a missing account", () => {
+    assert.equal(makeTransaction(-1), null)
+})
+
+test("returns null for an inactive account", () => {
+    const account = makeAccount()
+    deactivateAccount(account.id)
+
+    assert.equal(makeTransaction(account.id), null)
+})
+
+test("rejects zero, negative, and non-finite amounts", () => {
+    const account = makeAccount()
+
+    for (const amount of [0, -10, NaN, Infinity, -Infinity]) {
+        assert.equal(
+            makeTransaction(account.id, "Invalid", "income", amount),
+            null
+        )
+    }
+})
+
+test("rejects unsupported transaction types", () => {
+    const account = makeAccount()
+
+    assert.equal(
+        makeTransaction(account.id, "Invalid", "transfer", 100),
+        null
+    )
+})
+
+test("rejects invalid dates", () => {
+    const account = makeAccount()
+
+    assert.equal(
+        createTransaction(
+            account.id,
+            "Invalid date",
+            "income",
+            100,
+            new Date("invalid")
+        ),
+        null
+    )
+
+    assert.equal(
+        createTransaction(
+            account.id,
+            "Not a date",
+            "income",
+            100,
+            "2026-01-15"
+        ),
+        null
+    )
+})
+
+test("rejects an expense that would overflow the resulting balance", () => {
+    const account = makeAccount("Checking", 0, -Number.MAX_VALUE)
+
+    const transaction = makeTransaction(
+        account.id,
+        "Overflow",
+        "expense",
+        Number.MAX_VALUE
+    )
+
+    assert.equal(transaction, null)
+})
+
+test("rejects an income that would overflow the resulting balance", () => {
+    const account = makeAccount("Checking", 0, Number.MAX_VALUE)
+
+    const transaction = makeTransaction(
+        account.id,
+        "Overflow",
+        "income",
+        Number.MAX_VALUE
+    )
+
+    assert.equal(transaction, null)
+})
+
+// Failed transactions must not mutate balances or create records.
+
+test("does not create a record or change balance for a failed transaction", () => {
+    const account = makeAccount()
+
+    const transaction = makeTransaction(
+        account.id,
+        "Invalid amount",
+        "income",
+        -100
+    )
+
+    assert.equal(transaction, null)
+    assert.equal(getAccountById(account.id).balance, 1000)
+    assert.equal(getAllTransactions().length, 0)
+})
+
+// Retrieval
+
+test("retrieves a transaction by ID", () => {
+    const account = makeAccount()
+    const created = makeTransaction(account.id)
+
+    assert.deepEqual(getTransactionById(created.id), created)
+})
+
+test("returns null for a missing transaction ID", () => {
+    assert.equal(getTransactionById(-1), null)
+})
+
+test("retrieves transactions for a specific account", () => {
+    const firstAccount = makeAccount("Checking", 0, 1000)
+    const secondAccount = makeAccount("Savings", 0, 1000)
+
+    makeTransaction(firstAccount.id, "First")
+    makeTransaction(secondAccount.id, "Second")
+    makeTransaction(firstAccount.id, "Third")
+
+    const result = getTransactionsByAccountId(firstAccount.id)
+
+    assert.equal(result.length, 2)
+    assert.ok(
+        result.every(transaction => transaction.accountId === firstAccount.id)
+    )
+})
+
+test("returns all transaction records", () => {
+    const firstAccount = makeAccount("Checking", 0, 1000)
+    const secondAccount = makeAccount("Savings", 0, 1000)
+
+    makeTransaction(firstAccount.id, "First")
+    makeTransaction(secondAccount.id, "Second")
+
+    assert.equal(getAllTransactions().length, 2)
+})
+
+test("returns an empty array when no transactions exist", () => {
+    assert.deepEqual(getAllTransactions(), [])
+})
+
+describe("deleteTransaction", () => {
+    let account;
+
+    beforeEach(() => {
+        __resetForTests();
+        accounts.length = 0;
+
+        account = createAccount("Checking", 0, 1000);
+    });
+
+    test("deletes an expense and restores the account balance", () => {
         const transaction = createTransaction(
-            testAccount.id,
-            "Invalid Amount",
-            "expense",
-            amount,
-            new Date()
+            account.id, "Groceries", "expense", 200, new Date()
         );
 
-        assert.equal(transaction, null);
-    }
+        const result = deleteTransaction(transaction.id);
 
-    assert.equal(getTotalAccountBalance(testUser.id), balanceBefore);
-    assert.deepEqual(getTransactionsByAccountId(testAccount.id), historyBefore);
-});
+        assert.equal(result, true);
+        assert.equal(getAccountById(account.id).balance, 1000);
+        assert.equal(getTransactionById(transaction.id), null);
+    });
 
-test("rejects an invalid date without changing balance or history", () => {
-    const testUser = createUser("Invalid Date User");
-    const testAccount = createAccount("Invalid Date Account", testUser.id, 1000);
-    const balanceBefore = getTotalAccountBalance(testUser.id);
-    const historyBefore = getTransactionsByAccountId(testAccount.id);
+    test("deletes an income and reverses the account balance", () => {
+        const transaction = createTransaction(
+            account.id, "Salary", "income", 500, new Date()
+        );
 
-    const transaction = createTransaction(
-        testAccount.id,
-        "Invalid Date",
-        "expense",
-        100,
-        new Date("Invalid Date")
-    );
+        const result = deleteTransaction(transaction.id);
 
-    assert.equal(transaction, null);
-    assert.equal(getTotalAccountBalance(testUser.id), balanceBefore);
-    assert.deepEqual(getTransactionsByAccountId(testAccount.id), historyBefore);
-});
+        assert.equal(result, true);
+        assert.equal(getAccountById(account.id).balance, 1000);
+        assert.equal(getTransactionById(transaction.id), null);
+    });
 
-test("rejects an expense exceeding the account balance without side effects", () => {
-    const testUser = createUser("Insufficient Funds User");
-    const testAccount = createAccount("Insufficient Funds Account", testUser.id, 500);
-    const balanceBefore = getTotalAccountBalance(testUser.id);
-    const historyBefore = getTransactionsByAccountId(testAccount.id);
+    test("throws when the transaction does not exist", () => {
+        assert.throws(
+            () => deleteTransaction(999),
+            /Invalid transaction/
+        );
+    });
 
-    const transaction = createTransaction(
-        testAccount.id,
-        "Too Expensive",
-        "expense",
-        501,
-        new Date()
-    );
+    test("throws when the account does not exist", () => {
+        const transaction = createTransaction(
+            account.id, "Groceries", "expense", 200, new Date()
+        );
 
-    assert.equal(transaction, null);
-    assert.equal(getTotalAccountBalance(testUser.id), balanceBefore);
-    assert.deepEqual(getTransactionsByAccountId(testAccount.id), historyBefore);
-});
+        accounts.length = 0;
 
-test("rejects a transaction for an unknown account without side effects", () => {
-    const transactionsBefore = getAllTransactions();
+        assert.throws(
+            () => deleteTransaction(transaction.id),
+            /Invalid account/
+        );
+    });
 
-    const transaction = createTransaction(
-        500000,
-        "Unknown Account",
-        "expense",
-        100,
-        new Date()
-    );
+    test("keeps the transaction if the balance reversal fails", () => {
+        const transaction = createTransaction(
+            account.id, "Groceries", "expense", 200, new Date()
+        );
 
-    assert.equal(transaction, null);
-    assert.deepEqual(getAllTransactions(), transactionsBefore);
-});
+        deactivateAccount(account.id);
 
-test("rejects invalid transactions without adding transaction records", () => {
-    const testUser = createUser("History Test User");
-    const testAccount = createAccount("History Test Account", testUser.id, 100);
-    const historyBefore = getTransactionsByAccountId(testAccount.id);
+        const result = deleteTransaction(transaction.id);
 
-    createTransaction(testAccount.id, "Zero", "expense", 0, new Date());
-    createTransaction(testAccount.id, "Negative", "expense", -10, new Date());
-    createTransaction(testAccount.id, "NaN", "expense", NaN, new Date());
-    createTransaction(testAccount.id, "Invalid Date", "income", 10, new Date("Invalid Date"));
-    createTransaction(testAccount.id, "Insufficient", "expense", 101, new Date());
+        assert.equal(result, false);
+        assert.notEqual(getTransactionById(transaction.id), null);
+    });
 
-    assert.deepEqual(getTransactionsByAccountId(testAccount.id), historyBefore);
-});
+    test("removes the transaction from account transaction history", () => {
+        const transaction = createTransaction(
+            account.id, "Groceries", "expense", 200, new Date()
+        );
 
-test("rejected transactions do not consume transaction IDs", () => {
-    const testUser = createUser("Transaction ID User");
-    const testAccount = createAccount("Transaction ID Account", testUser.id, 1000);
+        deleteTransaction(transaction.id);
 
-    const firstTransaction = createTransaction(
-        testAccount.id,
-        "First Valid Transaction",
-        "income",
-        100,
-        new Date()
-    );
-
-    assert.notEqual(firstTransaction, null);
-
-    const invalidTransaction = createTransaction(
-        testAccount.id,
-        "Invalid Transaction",
-        "expense",
-        0,
-        new Date()
-    );
-
-    assert.equal(invalidTransaction, null);
-
-    const nextTransaction = createTransaction(
-        testAccount.id,
-        "Second Valid Transaction",
-        "income",
-        100,
-        new Date()
-    );
-
-    assert.notEqual(nextTransaction, null);
-    assert.equal(nextTransaction.id, firstTransaction.id + 1);
+        assert.equal(getTransactionsByAccountId(account.id).length, 0);
+    });
 });

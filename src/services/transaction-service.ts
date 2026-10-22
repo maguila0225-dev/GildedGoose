@@ -1,40 +1,48 @@
-import { Transaction } from "../models/transaction"
-import { TransactionType } from "../models/transaction"
 
+import { Transaction, TransactionType } from "../models/transaction"
 import { Account } from "../models/account"
-import { getAccountById } from "../services/account-service"
-import { updateAccountBalance } from "../services/account-service"
+import { getAccountById,
+         updateAccountBalance } from "../services/account-service"
 
 let transactions: Transaction[] = []
 let nextTransaction = 0
 
-export function createTransaction(accountId: number,
-                                  description: string | null,
-                                  type: TransactionType,
-                                  amount: number,
-                                  date: Date): Transaction | null {
+export function createTransaction(
+    accountId: number,
+    description: string | null,
+    type: TransactionType,
+    amount: number,
+    date: Date): Transaction | null {
     const account = getAccountById(accountId)
-    if (account &&
+
+    if (
+        account &&
         isValidTransaction(account, type, amount) &&
         isValidDate(date) &&
-        updateBalance(accountId, amount, type)) {
+        updateBalance(accountId, amount, type)
+    ) {
         const transaction: Transaction = {
             id: nextTransaction,
-            accountId: accountId,
-            description: description,
-            type: type,
-            amount: amount,
-            date: date
+            accountId,
+            description,
+            type,
+            amount,
+            date: new Date(date.getTime())
         }
+
         nextTransaction++
         transactions.push(transaction)
-        return transaction
-    } else {
-        return null
+
+        return copyTransaction(transaction)
     }
+
+    return null
 }
 
-function updateBalance(accountId: number, amount: number, type: TransactionType): boolean {
+function updateBalance(
+    accountId: number,
+    amount: number,
+    type: TransactionType): boolean {
     return updateAccountBalance(accountId, amount, type) !== null
 }
 
@@ -42,35 +50,81 @@ function isValidDate(date: unknown): date is Date {
     return date instanceof Date && !isNaN(date.getTime())
 }
 
-function isValidTransaction(account: Account,
-                            type: TransactionType,
-                            amount: number): boolean {
-    if (!isPositiveFinite(amount) ||
-        (type === "expense" && !isWithinBalance(account.balance, amount))) {
+function isValidTransaction(
+    account: Account,
+    type: TransactionType,
+    amount: number): boolean {
+    if (
+        !isPositiveFinite(amount) ||
+        (type === "income" &&
+            !Number.isFinite(account.balance + amount)) ||
+        (type === "expense" &&
+            !Number.isFinite(account.balance - amount)) ||
+        (type !== "income" && type !== "expense") ||
+        !account.isActive
+    ) {
         return false
-    } else {
-        return true
     }
-}
 
-function isWithinBalance(balance: number, amount: number): boolean {
-    return (balance - amount) >= 0
+    return true
 }
 
 function isPositiveFinite(value: unknown): value is number {
-  return Number.isFinite(value) && (value as number) > 0;
+    return Number.isFinite(value) && (value as number) > 0
+}
+
+function copyTransaction(transaction: Transaction): Transaction {
+    return {
+        ...transaction,
+        date: new Date(transaction.date.getTime())
+    }
 }
 
 export function getTransactionById(id: number): Transaction | null {
-    return transactions.find(transaction => { return transaction.id === id}) ?? null
+    const transaction = transactions.find(
+        transaction => transaction.id === id
+    )
+
+    return transaction === undefined
+        ? null
+        : copyTransaction(transaction)
 }
 
 export function getTransactionsByAccountId(id: number): Transaction[] {
-    return transactions.filter(transaction => { return transaction.accountId === id})
+    return transactions
+        .filter(transaction => transaction.accountId === id)
+        .map(copyTransaction)
 }
 
 export function getAllTransactions(): Transaction[] {
-    const allTransactions = transactions.filter( transaction => { return true })
-    return allTransactions
+    return transactions.map(copyTransaction)
 }
 
+export function __resetForTests(): void {
+    transactions = []
+    nextTransaction = 0
+}
+
+export function deleteTransaction(id: number): boolean {
+    const index = transactions.findIndex(transaction => transaction.id === id)
+    const deleteTransaction = transactions[index]
+    if(deleteTransaction === undefined ) {
+        throw new Error("Invalid transaction")
+    } 
+    const account = getAccountById(deleteTransaction.accountId)
+    if(account === null) {
+        throw new Error("Invalid account")
+    } 
+
+    if(deleteTransaction.type === "expense" && 
+       updateBalance(account.id, deleteTransaction.amount, "income")) {
+       transactions.splice(index, 1)
+       return true
+    } else if(deleteTransaction.type === "income" && 
+       updateBalance(account.id, deleteTransaction.amount, "expense")){
+        transactions.splice(index, 1)
+        return true
+    } else {
+        return false
+    } 
+}

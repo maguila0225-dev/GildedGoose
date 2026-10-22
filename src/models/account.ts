@@ -3,4 +3,5 @@ export interface Account {
     name: string
     userId: number
     balance: number
+    isActive: boolean
 }
