@@ -205,13 +205,8 @@ function performTransfer(
     receiverId: number,
     amount: number
 ): void {
-    const senderIndex = accounts.findIndex(
-        account => account.id === senderId
-    )
-    const receiverIndex = accounts.findIndex(
-        account => account.id === receiverId
-    )
-
+    const senderIndex = accounts.findIndex( account => account.id === senderId )
+    const receiverIndex = accounts.findIndex( account => account.id === receiverId )
     const sender = accounts[senderIndex]
     const receiver = accounts[receiverIndex]
 
@@ -219,7 +214,6 @@ function performTransfer(
         throw new Error("Transfer failed: Account not found")
     }
 
-    // Validate both accounts before changing either balance.
     sender.balance -= amount
     receiver.balance += amount
 }
