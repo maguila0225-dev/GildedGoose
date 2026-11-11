@@ -107,22 +107,62 @@ export function __resetForTests(): void {
 
 export function deleteTransaction(id: number): boolean {
     const index = transactions.findIndex(transaction => transaction.id === id)
+
     const deleteTransaction = transactions[index]
+
     if(deleteTransaction === undefined ) {
         throw new Error("Invalid transaction")
     } 
-    const account = getAccountById(deleteTransaction.accountId)
-    if(account === null) {
-        throw new Error("Invalid account")
-    } 
 
-    if(deleteTransaction.type === "expense" && 
-       updateBalance(account.id, deleteTransaction.amount, "income")) {
-       transactions.splice(index, 1)
-       return true
-    } else if(deleteTransaction.type === "income" && 
-       updateBalance(account.id, deleteTransaction.amount, "expense")){
+    if(reverseTransaction(deleteTransaction)) {
         transactions.splice(index, 1)
+        return true
+    } else {
+        return false
+    }
+}
+
+
+
+export function updateTransaction(id: number, 
+                                  updates: Partial<Omit<Transaction, "id" | "accountId">>): Transaction | null {
+    let transaction = getTransactionById(id)
+    const index = transactions.findIndex(transaction => transaction.id === id)
+
+    if(transaction === null) {
+        return null
+    }
+
+    const account = getAccountById(transaction.accountId)
+
+    if(account === null) {
+        return null
+    }
+
+    const updatedTransaction = {
+        ...transaction,
+        ...updates
+    }
+
+    if(!isValidTransaction(account, updatedTransaction.type, updatedTransaction.amount)) {
+        return null
+    }
+
+    if(reverseTransaction(transaction)) {
+        updateBalance(updatedTransaction.accountId, updatedTransaction.amount, updatedTransaction.type)
+        transactions[index] = updatedTransaction
+        return updatedTransaction
+    } else {
+        return null
+    }
+}
+
+function reverseTransaction(transaction: Transaction): boolean {
+    if(transaction.type === "expense" && 
+       updateBalance(transaction.accountId, transaction.amount, "income")) {
+       return true
+    } else if(transaction.type === "income" && 
+       updateBalance(transaction.accountId, transaction.amount, "expense")){
         return true
     } else {
         return false
